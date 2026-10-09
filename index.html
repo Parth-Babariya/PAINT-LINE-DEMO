@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Paint Line: 3D Process, Sensors and Control</title>
+<style>
+:root{--bg:#f3f5f4;--ink:#14242b;--mute:#5b6b71;--line:#cbd4d3;--navy:#14323f;--card:#fff;--tint:#eef3f3;--amb:#b77d00;--grn:#2b7a57;--red:#b8372b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f171a;--ink:#e6ecea;--mute:#9bacb0;--line:#2f4146;--navy:#2a5567;--card:#172225;--tint:#1c2a2e;--amb:#e3a928;--grn:#5fc497;--red:#ef7d70}}
+:root[data-theme="dark"]{--bg:#0f171a;--ink:#e6ecea;--mute:#9bacb0;--line:#2f4146;--navy:#2a5567;--card:#172225;--tint:#1c2a2e;--amb:#e3a928;--grn:#5fc497;--red:#ef7d70}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{background:var(--navy);color:#fff;padding:16px 18px}header h1{font-size:22px;margin:0 0 3px}header p{margin:0;opacity:.85;max-width:90ch}
+.bar{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;background:var(--card);border-bottom:1px solid var(--line)}
+button{font:inherit;font-size:13px;padding:5px 10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:5px;cursor:pointer}
+button.on{background:var(--navy);color:#fff;border-color:var(--navy)}.sp{flex:1}
+.wrap{display:grid;grid-template-columns:1fr 390px}
+#v{height:76vh;min-height:430px;touch-action:none;cursor:grab}
+#ins{height:76vh;overflow:auto;background:var(--card);border-left:1px solid var(--line);padding:12px 14px;font-size:13px}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}#ins{height:auto;max-height:none;border-left:0;border-top:1px solid var(--line)}}
+#ins h2{font-size:17px;margin:0 0 2px}#ins h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);margin:14px 0 4px}
+#ins p{margin:3px 0}#ins ul{margin:0;padding-left:17px}#ins li{margin:2px 0}
+.now{background:var(--tint);border-left:4px solid var(--amb);padding:6px 10px;margin:8px 0}
+.cyc{font-size:12px;color:var(--mute);border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:8px}
+table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:4px 5px;border-bottom:1px solid var(--line);vertical-align:top;font-size:12.5px}
+td:first-child{font-weight:600;color:var(--amb);white-space:nowrap}td.lv{font-weight:600;white-space:nowrap;color:var(--grn)}
+.k{display:inline-block;font-size:11px;font-weight:600;padding:0 7px;border-radius:9px;color:#fff;margin-right:5px;background:#23607f}
+.k.PID{background:#b8601b}.k.MOT{background:#2b7a57}.k.ROB{background:#1f7a8c}.k.SAF{background:#b8372b}.k.RAT{background:#8a5a9e}.k.RCP{background:#5b6b71}.k.SUP{background:#3d4f9f}
+.lg{display:flex;flex-wrap:wrap;gap:6px 18px;padding:10px 14px;font-size:13px;max-width:1200px;margin:0 auto}
+i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.note{max-width:1200px;margin:0 auto;padding:0 14px 26px;color:var(--mute);font-size:12.5px}
+</style></head><body>
+<header><h1>Paint line 3D: AI monitoring and control (e-rickshaw chassis plant)</h1><p>Frames move one position at a time. Then every station works at once. Click a station (in the model or the buttons) to see what it is doing, its sensors, what responds, and how it is controlled.</p></header>
+<div class="bar" id="bar"></div>
+<div class="wrap"><div id="v"></div><aside id="ins"></aside></div>
+<div class="lg"><span><i style="background:#8a6a4c"></i>Raw</span><span><i style="background:#aab2b8"></i>Blasted</span><span><i style="background:#6f8a7e"></i>Phosphated</span><span><i style="background:#6f9bd0"></i>Powder applied (uncured)</span><span><i style="background:#1f5fae"></i>Cured paint</span><span><i style="background:#2f9e6b"></i>Robot</span><span><i style="background:#e0a100"></i>Sensor</span><span><i style="background:#e8742a"></i>PLC panel and cable tray</span><span><i style="background:#b8372b"></i>Safety fence, E-stop</span></div>
+<p class="note">Illustrative layout. Live values are simulated for illustration. Animation is much faster than the real 5.9 min takt. R2/R3 booth robots are optional per the coverage study and not drawn. The powder booth, reciprocators and cyclone are modelled on the site reference photos.</p>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+var el=document.getElementById('v'),ins=document.getElementById('ins'),dark=matchMedia('(prefers-color-scheme: dark)').matches;
+var scene=new THREE.Scene();scene.background=new THREE.Color(dark?0x182226:0xdde5e9);
+var cam=new THREE.PerspectiveCamera(42,1,.1,400),ren;
+try{ren=new THREE.WebGLRenderer({antialias:true});}catch(e){el.innerHTML='<p style="padding:20px">3D view needs WebGL.</p>';return;}
+ren.shadowMap.enabled=true;el.appendChild(ren.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x778899,.95));
+var dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(15,45,25);dl.castShadow=true;dl.shadow.mapSize.set(2048,2048);var sc=dl.shadow.camera;sc.left=-30;sc.right=30;sc.top=24;sc.bottom=-24;sc.far=120;scene.add(dl);
+var gS=new THREE.Group(),gN=new THREE.Group(),gF=new THREE.Group();scene.add(gS,gN,gF);
+function M(c,o){var s=o===undefined||o>=1;return new THREE.MeshStandardMaterial({color:c,roughness:.7,metalness:.15,transparent:!s,opacity:s?1:o,depthWrite:s});}
+function bx(w,h,d,x,y,z,c,o,p){var m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),M(c,o));m.position.set(x,y,z);m.castShadow=m.receiveShadow=(o===undefined);(p||scene).add(m);return m;}
+function bt(w,h,d,x,y,z,c){var m=bx(w,h,d,x,y,z,c,.1);m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry),new THREE.LineBasicMaterial({color:dark?0x9fc3d6:0x14323f})));return m;}
+function cy(r,h,x,y,z,c,p,o){var m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,14),M(c,o));m.position.set(x,y,z);m.castShadow=true;(p||scene).add(m);return m;}
+function pl(w,d,x,y,z,c){var m=new THREE.Mesh(new THREE.PlaneGeometry(w,d),M(c));m.rotation.x=-Math.PI/2;m.position.set(x,y,z);m.receiveShadow=true;scene.add(m);}
+function lab(t,x,y,z,s,g){s=s||6;var c=document.createElement('canvas');c.width=512;c.height=96;var q=c.getContext('2d');q.font='600 34px sans-serif';var w=Math.min(q.measureText(t).width+44,512);q.fillStyle='rgba(20,50,63,.93)';q.fillRect((512-w)/2,10,w,76);q.fillStyle='#fff';q.textAlign='center';q.fillText(t,256,62);
+var sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false}));sp.position.set(x,y,z);sp.scale.set(s,s*96/512,1);sp.renderOrder=10;(g||scene).add(sp);}
+function dyn(x,y,z,s){var c=document.createElement('canvas');c.width=512;c.height=96;var q=c.getContext('2d'),tx=new THREE.CanvasTexture(c),sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tx,depthTest:false})),last='';sp.position.set(x,y,z);sp.scale.set(s,s*96/512,1);sp.renderOrder=11;scene.add(sp);
+return function(t,col){if(t+col===last)return;last=t+col;q.clearRect(0,0,512,96);q.fillStyle=col;q.fillRect(20,10,472,76);q.fillStyle='#fff';q.font='600 36px sans-serif';q.textAlign='center';q.fillText(t,256,62);tx.needsUpdate=true;};}
+function ln(x1,z1,x2,z2,c,g,y,t){y=y||.06;t=t||.18;if(x1===x2)bx(t,t,Math.abs(z2-z1),x1,y,(z1+z2)/2,c,1,g);else bx(Math.abs(x2-x1),t,t,(x1+x2)/2,y,z1,c,1,g);}
+function ss(x){x=x<0?0:x>1?1:x;return x*x*(3-2*x);}
+var G=0x2f9e6b,MU=dark?0x4a5b62:0x9aa9b1,RY=5.4,P=2.6,NS=34,L=NS*P;
+// ---- path
+var SEG=[[-15.6,-6.5,15.6,-6.5],[15.6,-6.5,15.6,6.5],[15.6,6.5,-15.6,6.5],[-15.6,6.5,-15.6,-6.5]],SL=SEG.map(function(g){return Math.hypot(g[2]-g[0],g[3]-g[1]);});
+function pos(s){s=((s%L)+L)%L;for(var i=0;i<4;i++){if(s<SL[i]){var g=SEG[i],u=s/SL[i];return [g[0]+(g[2]-g[0])*u,g[1]+(g[3]-g[1])*u];}s-=SL[i];}return [-15.6,-6.5];}
+// ---- floor
+pl(52,34,0,0,0,dark?0x2a373c:0xc3ced3);pl(26,1.4,0,.03,0,dark?0x35564a:0xb7d6c3);for(var a=-18;a<=18;a+=2.6)pl(.05,26,a,.015,0,0x8da0a8);
+SEG.forEach(function(g){var w=g[0]!==g[2];if(w)bx(Math.abs(g[2]-g[0]),.16,.16,(g[0]+g[2])/2,RY,g[1],0x2d3d44);else bx(.16,.16,Math.abs(g[3]-g[1]),g[0],RY,(g[1]+g[3])/2,0x2d3d44);});
+[-10,-2.6,5.2,13].forEach(function(x){bx(.12,.12,13,x,5.7,0,0x667780);cy(.08,5.7,x,2.85,0,0x667780);[-6.5,6.5].forEach(function(z){cy(.04,.3,x,5.55,z,0x667780);});});
+// ---- Z0 load
+pl(9,7,-15.5,.02,-9,dark?0x34464c:0xaebcc3);bx(3.4,.5,1.4,-16.6,.45,-11.4,0x55646b);lab('Z0 Load: robot R1 + infeed rack',-15.5,6.4,-9.5,7.5);
+// ---- Z1 shot blast
+bt(4.2,5,4.4,-7.8,2.5,-6.5,0x7d98a8);[-8.6,-4.4].forEach(function(z){cy(.55,.9,-7.8,2.7,z,0xb8602a);});bx(1.2,1.4,1.2,-7.8,5.7,-6.5,0x66737a);bx(2.4,3,1.8,-7.8,1.5,-11.6,0x66737a);ln(-7.8,-11.6,-7.8,-8.8,0x66737a,null,2.4,.5);
+var door1=bx(.12,4.4,4.4,-9.9,2.4,-6.5,0x4d6a7a),door2=bx(.12,4.4,4.4,-5.7,2.4,-6.5,0x4d6a7a);lab('Z1 SB1 shot blast',-7.8,6.9,-6.5,6.5);
+// ---- Z2 PM1 dip tanks + dry-off
+var TK=[['Degrease 55-65C',0xe3c75a],['Rinse',0x5aa6d6],['Phosphate 45-55C',0x6fbf8a],['Rinse',0x5aa6d6]];
+TK.forEach(function(t,i){var x=-2.6+i*2.6;bx(2.1,1.6,3.8,x,.8,-6.5,0xb9c4ca);pl(1.8,3.4,x,1.5,-6.5,t[1]);lab(t[0],x,2.7,-8.9,2.9);});
+bt(5,5,4.2,9.3,2.5,-6.5,0xc98a5a);bx(1.6,1,1.6,9.3,5.7,-6.5,0x7a3b1c);lab('Z2 PM1: hoist dips frame in each tank',1.3,6.8,-6.5,8.5);lab('Dry-off 110-130C',9.3,6.9,-6.5,4.6);
+// ---- buffer
+lab('Buffer',17.6,3.6,0,3);
+// ---- Z3 PM2a powder booth (from site photos: yellow cabin, glass windows, reciprocator masts, cyclone recovery, filter unit)
+var YL=0xf0b000,GL=0xcfe6f2,SV=0xdfe3e6,WH=0xe9edef,DK=0x39454b,BX0=6.9,BX1=14.3,BXC=10.6,BW=BX1-BX0,rec=[];
+function cn2(rt,rb,h,x,y,z,c){var m=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,22),M(c));m.position.set(x,y,z);m.castShadow=true;scene.add(m);return m;}
+pl(BW,4.8,BXC,.03,6.5,dark?0x4a565c:0x8b979d);
+[4.1,8.9].forEach(function(z){bx(BW,1.1,.1,BXC,.55,z,YL);bx(BW,.7,.1,BXC,4.85,z,YL);bx(BW,3,.05,BXC,2.9,z,GL,.2);bx(BW,.14,.14,BXC,5.2,z,YL);[BX0,BXC,BX1].forEach(function(x){bx(.16,5.2,.16,x,2.6,z,YL);});});
+[BX0,BX1].forEach(function(x){bx(.16,.7,4.9,x,4.85,6.5,YL);bx(.14,.14,4.9,x,5.2,6.5,YL);});
+bx(BW,.06,4.8,BXC,5.2,6.5,GL,.18);[6.2,6.8].forEach(function(z){bx(BW,.08,.18,BXC,5.24,z,YL);});
+[9.1,11.7].forEach(function(mx,i){[4.75,8.25].forEach(function(z,si){var dir=si?-1:1,g=new THREE.Group();g.position.set(mx,0,z);scene.add(g);
+ bx(.7,.12,.9,0,.06,0,SV,1,g);bx(.28,4.6,.3,0,2.4,0,WH,1,g);bx(.1,4.4,.04,0,2.4,dir*.17,YL,1,g);bx(.3,.15,.34,0,4.72,0,DK,1,g);
+ var cg=new THREE.Group();cg.position.y=2.2;g.add(cg);bx(.4,.3,.36,0,0,0,DK,1,cg);var cs=[];
+ [-.5,.5].forEach(function(dy){bx(.07,.07,.5,0,dy,dir*.45,SV,1,cg);bx(.2,.2,.45,0,dy,dir*.8,YL,1,cg);bx(.12,.12,.1,0,dy,dir*1.05,DK,1,cg);
+  var c=new THREE.Mesh(new THREE.ConeGeometry(.5,.9,14,1,true),new THREE.MeshBasicMaterial({color:0xcfe3f5,transparent:true,opacity:0,side:2,depthWrite:false}));c.rotation.x=dir>0?-Math.PI/2:Math.PI/2;c.visible=false;scene.add(c);cs.push(c);});
+ rec.push({cg:cg,cones:cs,dys:[-.5,.5],x:mx,z:z,dir:dir,p:i*1.7+si*.9,y:2.2});});});
+bx(2.4,2.6,1.6,7.6,1.3,11.8,0xb9c1c6);[7,8.2].forEach(function(x){bx(.8,.8,.04,x,1.9,10.97,DK);});bx(2.4,.12,1.7,7.6,2.65,11.8,0x8d9aa1);
+[-.6,.6].forEach(function(a){[-.6,.6].forEach(function(b){cy(.05,2.4,12.6+a,1.2,11.6+b,SV);});});
+cn2(.9,.2,1.8,12.6,2.1,11.6,SV);cn2(.9,.9,1.2,12.6,3.6,11.6,SV);cn2(.95,.95,.12,12.6,4.26,11.6,0xb9c1c6);cy(.38,.8,12.6,.7,11.6,0x9aa5ab);
+var d1=cy(.22,1.8,12.6,3.6,9.8,SV);d1.rotation.x=Math.PI/2;var d2=cy(.2,5,10.1,4.8,11.6,SV);d2.rotation.z=Math.PI/2;cy(.2,2.2,7.6,3.7,11.6,SV);cy(.2,.6,12.6,4.5,11.6,SV);
+lab('Z3 PM2a powder booth, 8 guns',BXC,7,6.5,7.5);lab('Cyclone recovery',12.6,5.5,11.6,4.6);lab('Filter + powder feed',7.6,3.6,11.8,4.8);
+// ---- Z4 cure oven
+bt(7.4,5,4.6,2.4,2.5,6.5,0xd1865a);[5.2,2.6,0].forEach(function(x){bx(1.3,.9,1.3,x,5.5,6.5,0x7a3b1c);});cy(.35,2,2.6,6.4,6.5,0x66737a);lab('Z4 Cure oven, 3 zones',2.4,7.4,6.5,6);
+// ---- Z5 QC
+bt(3.8,4.6,4.4,-7.8,2.3,6.3,0x9fb5c2);[-9.5,-6.1].forEach(function(x){bx(.2,3.2,.2,x,1.6,4.2,0x2d3d44);});bx(3.4,.2,.3,-7.8,3.2,4.2,0x2d3d44);bx(.5,.4,.4,-7.8,2.95,4.2,0x1f6f9f);lab('Z5 QC: R4 probe + camera',-7.8,6.4,6.5,6.2);
+// ---- Z6 unload + pallets
+pl(8,5,-13.5,.02,10,dark?0x34464c:0xaebcc3);bx(2,.3,2,-15.8,.15,10.8,0x2f9e6b);bx(2,.3,2,-10.2,.15,10.8,0xb8372b);lab('Z6 Unload: robot R5',-13,6.4,10,6);
+var hk=bt(1.8,3.2,2,-15.6,1.6,1.3,0xb8a24a);var brushes=[cy(.2,2.4,-16.3,1.6,1.3,0x555),cy(.2,2.4,-14.9,1.6,1.3,0x555)];lab('Hook clean + continuity check',-15.6,4.4,1.3,6);
+// ---- context, utilities, control room
+bx(3,2,12,-19.5,1,-1,MU);lab('Parts cell (context)',-19.5,3.2,-1,5);bx(3,1.4,3,1,.7,-12.5,MU);lab('Utilities: DM water, dosing, MCC',1,2.6,-12.5,6);
+pl(10,3,-2,.02,15,dark?0x34464c:0xaebcc3);lab('Dispatch staging',-2,2,15,4.5);
+bx(9,3.2,3.4,0,1.6,16.5,0x3d5a6b);bx(7,.7,.1,0,2.2,14.78,0x9fd0e8);lab('Control room: SCADA, MES, Line PLC, Safety PLC',0,4.8,16.5,10);
+// ---- network and panels
+var O=0xe8742a;ln(-15,-11.2,18.6,-11.2,O,gN);ln(18.6,-11.2,18.6,13,O,gN);ln(0,13,18.6,13,O,gN);ln(-15,13,0,13,O,gN);ln(0,13,0,14.8,O,gN);
+[[-13,-9.8,'Load PLC',-11.2],[-7.8,-9.8,'SB1 PLC',-11.2],[1.3,-9.8,'PM1 PLC',-11.2],[9.1,-9.8,'Dry-off BMS',-11.2],[10.5,9.6,'Booth PLC',13],[2.4,9.6,'Cure BMS',13],[-5.2,9.6,'QC PLC',13],[-10.4,9.8,'Robot ctrl R5',13]].forEach(function(p){bx(.8,1.4,.5,p[0],.7,p[1],O,1,gN);ln(p[0],p[1],p[0],p[3],O,gN);lab(p[2],p[0],2.1,p[1],3,gN);});
+var R=0xb8372b;[[-20.2,-13.2,-11.0,-13.2],[-20.2,-7.4,-11.0,-7.4],[-20.2,-13.2,-20.2,-7.4],[-11,-13.2,-11,-7.4],[-18.5,8,-8.5,8],[-18.5,13.5,-8.5,13.5],[-18.5,8,-18.5,13.5],[-8.5,8,-8.5,13.5]].forEach(function(f){ln(f[0],f[1],f[2],f[3],R,gF,1.1,.08);});
+[[-20.2,-10],[-11,-10],[-18.5,10.5],[-8.5,10.5],[16,3],[4,-10]].forEach(function(p){var e=new THREE.Mesh(new THREE.SphereGeometry(.28,12,12),M(0xff2a1a));e.position.set(p[0],1.5,p[1]);gF.add(e);});
+// ---- sensors (station id, x,y,z)
+var SN={};[['z0',-18.2,1.5,-11.4],['z0',-15.4,4.4,-10.8],['z0',-13,4.5,-6.5],['z0',-13,5,-5.6],['z1',-9.9,4.9,-4.2],['z1',-7.8,4.7,-6.5],['z1',-7.8,3.5,-8.9],['z1',-7.8,2.9,-10.8],['z2',-2.6,1.8,-8.6],['z2',2.6,1.8,-8.6],['z2',5.2,1.8,-8.6],['z2',0,5,-6.5],['z2',9.3,4.2,-8.7],['z3',14.5,2.8,4.9],['z3',13,5.3,6.5],['z3',9.1,3.9,4.95],['z3',11.7,4.85,8.25],['z3',12.6,3.9,9.8],['z3',12.6,4.7,11.6],['z3',12.6,.95,11.2],['z4',5.2,4.2,8.7],['z4',2.6,4.2,8.7],['z4',0,4.2,8.7],['z4',2.6,4.9,4.3],['z5',-7.8,3.4,4.3],['z5',-5.6,4.9,6.5],['z6',-13,4.9,8],['z6',-15.8,1.5,10.8],['z6',-10.2,1.5,10.8],['z6',-15.6,4.4,1.3]].forEach(function(p){var m=new THREE.Mesh(new THREE.SphereGeometry(.24,12,12),M(0xe0a100));m.position.set(p[1],p[2],p[3]);gS.add(m);(SN[p[0]]=SN[p[0]]||[]).push(m);});
+// ---- robots with 2-link IK
+var L1=1.9,L2=1.7;
+function robot(x0,z0){var g=new THREE.Group();g.position.set(x0,0,z0);cy(.6,.5,0,.25,0,0x44525a,g);cy(.42,.95,0,.95,0,G,g);var s=new THREE.Group();s.position.y=1.4;g.add(s);bx(L1,.34,.34,L1/2,0,0,G,1,s);var e=new THREE.Group();e.position.x=L1;s.add(e);bx(L2,.28,.28,L2/2,0,0,0x1f7a52,1,e);bx(.28,.5,.34,L2,-.12,0,0x222,1,e);scene.add(g);return {g:g,s:s,e:e,x:x0,z:z0};}
+function aim(r,t){var dx=t[0]-r.x,dz=t[2]-r.z,d=Math.hypot(dx,dz),h=t[1]-1.4,rr=Math.max(.4,Math.min(L1+L2-.02,Math.hypot(d,h)));r.g.rotation.y=Math.atan2(-dz,dx);
+var A=Math.acos(Math.max(-1,Math.min(1,(L1*L1+rr*rr-L2*L2)/(2*L1*rr)))),Gm=Math.acos(Math.max(-1,Math.min(1,(L1*L1+L2*L2-rr*rr)/(2*L1*L2))));r.s.rotation.z=Math.atan2(h,d)+A;r.e.rotation.z=-(Math.PI-Gm);}
+function path(w,Q){if(w<=Q[0][0])return Q[0].slice(1);for(var i=1;i<Q.length;i++){if(w<=Q[i][0]){var a=Q[i-1],b=Q[i],u=ss((w-a[0])/(b[0]-a[0]));return [a[1]+(b[1]-a[1])*u,a[2]+(b[2]-a[2])*u,a[3]+(b[3]-a[3])*u];}}return Q[Q.length-1].slice(1);}
+var R1=robot(-14.4,-9),R4=robot(-7.8,9.1),R5=robot(-13,9.2);
+// ---- frames
+function mkFrame(s){var m=M(0x8a6a4c),g=new THREE.Group();function r(l,x,y,z,rx,rz){var a=new THREE.Mesh(new THREE.CylinderGeometry(.06,.06,l,8),m);a.position.set(x,y,z);a.rotation.set(rx||0,0,rz||0);g.add(a);}
+[-.45,.45].forEach(function(z){r(2.2,0,0,z,0,Math.PI/2);r(.55,1.31,.17,z,0,-.9);});[-.8,-.3,.2,.7].forEach(function(x){r(.9,x,0,0,Math.PI/2,0);});g.scale.setScalar(s||.82);return {g:g,m:m};}
+var cRaw=new THREE.Color(0x8a6a4c),cSil=new THREE.Color(0xaab2b8),cPh=new THREE.Color(0x6f8a7e),cPow=new THREE.Color(0x6f9bd0),cCure=new THREE.Color(0x1f5fae);
+function look(m,q){var c=m.color;m.roughness=.85;m.metalness=.3;
+if(q<3.55)c.copy(cRaw);else if(q<7.5){c.copy(cSil);m.metalness=.6;m.roughness=.45;}else if(q<18.2)c.copy(cPh);
+else if(q<21){c.lerpColors(cPh,cPow,ss((q-18.2)/2.6));m.roughness=.95;m.metalness=.05;}
+else if(q<24){var u=ss((q-21)/3);c.lerpColors(cPow,cCure,u);m.roughness=.95-.7*u;m.metalness=.05+.2*u;}
+else{c.copy(cCure);m.roughness=.25;m.metalness=.25;}}
+var cars=[];for(var k=0;k<NS;k++){var g=new THREE.Group(),tl=new THREE.Group();g.add(tl);bx(.5,.2,.8,0,RY,0,0x222,1,tl);var rd=cy(.04,1,0,4.4,0,0x222,tl);rd.castShadow=false;var fr=mkFrame(),w=new THREE.Group();w.add(fr.g);tl.add(w);scene.add(g);cars.push({g:g,fr:fr,w:w,rd:rd,tilt:0,tt:0});}
+var inF=mkFrame(),outF=mkFrame();scene.add(inF.g,outF.g);look(inF.m,0);look(outF.m,30);
+var pal=[[],[]];[0,1].forEach(function(p){for(var i=0;i<6;i++){var f=mkFrame();look(f.m,30);f.g.position.set(p?-10.2:-15.8,.45+.14*i,10.8);f.g.visible=false;f.g.scale.setScalar(.7);scene.add(f.g);pal[p].push(f);}});
+var lP=dyn(-15.8,2.3,10.8,3.4),lF=dyn(-10.2,2.3,10.8,3.4),lQ=dyn(-7.8,5.4,4.2,5);
+// ---- inspector data
+function nv(b,a,u,d){return [b,a,u,d||0];}
+var D={
+ov:{n:'How to read this model',sub:'One carrier sits at every position. All carriers index forward one position, then every station works at the same time. In real operation one index is about one takt (5.9 min target).',
+ act:['Hang by robot R1, shot blast, 4 dip tanks, dry-off, powder booth, cure oven, QC by robot R4, unhang by robot R5, hook clean, back to start','Frame colour shows the process: raw, blasted, phosphated, powder applied, cured paint'],
+ ctl:['L4 MES: recipes by frame ID, results, history','L3 SCADA/HMI: screens, alarms, trends','L2 Line PLC (tracking, handover, conveyor, recipes) and Safety PLC (E-stops, interlocks)','L1 Zone PLCs, robot controllers, gun controllers, burner management systems','L0 Sensors and actuators on each station'],
+ saf:['Any trip is hardwired to the Safety PLC, which puts the zone in a safe state (HV off, burners off, robots stopped, conveyor held).']},
+z0:{n:'Z0 Load',sub:'Robot R1 takes the frame from the infeed rack and hangs it on the carrier hooks H1/H2.',
+ steps:[[0,'Frame waits on rack, camera finds its pose'],[.23,'R1 grips the frame'],[.3,'R1 carries it to the carrier hooks'],[.65,'Frame seated on hooks, RFID writes ID and recipe'],[.75,'R1 returns home, gate ready']],
+ sens:[['0.1','Rack photoeye','Detects a frame on the rack, lets R1 start','Present'],['0.2','3D vision camera','Finds frame position and angle so R1 grips the right spot','Pose found'],['0.3','Hook-seated sensor','Confirms frame is on both hooks before the carrier leaves','Seated'],['0.4','RFID writer','Stores frame ID and recipe on the carrier tag',function(x){return 'ID #'+x.s1;}]],
+ act:['R1 6-axis robot with gripper','Infeed rack stopper','Carrier stop gate'],ctl:['ROB R1 path runs in the robot controller','SEQ Line PLC starts R1 only when frame, carrier and gate are ready','RCP recipe is tied to the frame ID'],saf:['Fence and light curtain around R1 stop the robot if opened','Carrier is released only when hook sensor and RFID both confirm']},
+z1:{n:'Z1 SB1 shot blast',sub:'Cabinet with turbines. Cycle 4.2 min, goal Sa 2.5 clean metal.',
+ steps:[[0,'Doors closing, safety switch proves closed'],[.1,'Turbines and dust collector start'],[.2,'Rotator turns frame so every face is hit'],[.55,'Frame surface now blasted'],[.85,'Turbines stop, doors ready to open']],
+ sens:[['1.1','Door safety switch','Proves doors are closed before turbines can start',function(x){return x.mv?'Open':'Closed';}],['1.2','Carrier position sensor','Frame is centred, timed cycle can start','In position'],['1.3','Turbine motor current','Shows media throw and wear. Low current means no abrasive',nv(38,3,'A',1)],['1.4','Dust collector pressure drop','Filter loading, high value triggers pulse cleaning',nv(920,60,'Pa')],['1.5','Abrasive level','Calls refill from the media hopper',nv(72,2,'%')]],
+ act:['Turbine drives (VFD)','Carrier rotator (servo)','Abrasive feed valve','Dust collector fan and pulse valves','Sliding doors'],ctl:['SEQ timed cycle per recipe','MOT rotator position and turbine speed','PID dust collector pressure','Controller: SB1 PLC'],saf:['Door switches go to the Safety PLC. Turbines stop if a door opens.']},
+z2:{n:'Z2 PM1 pretreatment',sub:'Each frame is lowered into a tank by a hoist, soaks, is lifted and tilted to drain, then moves on. Backlog: degrease 55-65 C, phosphate 45-55 C, dry-off 110-130 C for 8-10 min.',
+ steps:[[0,'Hoist lowers frame into the tank'],[.3,'Frame soaks, bath temperature held by PID'],[.72,'Hoist lifts, frame tilts so open ends drain'],[.9,'Ready to move to next stage']],
+ sens:[['2.1','Degrease tank temperature','Bath temperature, PID holds setpoint',nv(60,.6,'C',1)],['2.2','Phosphate tank temperature','Bath temperature, PID holds setpoint',nv(50,.6,'C',1)],['2.3','pH and conductivity probes','Chemical strength and rinse quality, dosing pump adds chemical',nv(5.1,.05,'pH',2)],['2.4','Tank level switches','Keep level for dipping, low level cuts heaters','OK'],['2.5','Hoist encoder and tilt sensor','Dip depth, soak time and drain angle',function(x){return x.mv?'Moving':x.w<.15?'Lowering':x.w<.7?'Soaking':x.w<.85?'Lifting':'Draining';}],['2.6','Dry-off oven temperature','Air temperature, PID drives the burner',nv(120,1.2,'C')],['2.7','Airflow and flame sensors','Burner runs only with airflow and flame','OK']],
+ act:['Dip hoist at each tank (drive and brake)','Tilt actuator for drain angle','Tank heaters, dosing pumps, overflow valves','Dry-off burner and circulation fan'],ctl:['SEQ dip recipe: down, soak, up, drain','PID tank and oven temperature','RAT chemical dosing from pH and conductivity','MOT hoist and tilt','Controllers: PM1 PLC, burner management system'],saf:['Low level cuts heaters. Burner locks out without airflow or flame. Hoist brake holds on power loss.']},
+z3:{n:'Z3 PM2a powder booth',sub:'8 automatic guns on 4 reciprocator masts (2 guns each, 2 masts per side). The frame is coated over three positions. Overspray goes to the cyclone and filter. Backlog: 60-100 kV, DFT 60-90 um.',
+ steps:[[0,'Ground and extraction checks pass, guns parked'],[.1,'High voltage on, guns spray, reciprocators sweep up and down'],[.92,'High voltage off, guns park, overspray cleared to cyclone']],
+ sens:[['3.1','Profile light curtain','Reads frame height so gun zones switch on only where the frame is','Frame seen'],['3.2','Ground continuity monitor','Checks hook-to-earth path. No good ground, no high voltage','Ground OK'],['3.3','Gun voltage feedback','Closed-loop charge control at each gun',function(x){return x.sp?(78+1.5*Math.sin(x.t*1.7)).toFixed(1)+' kV':'0 kV (HV off)';}],['3.4','Powder flow and air pressure','Holds feed rate per gun',function(x){return x.sp?Math.round(185+6*Math.sin(x.t*1.3))+' g/min':'0 g/min';}],['3.5','Reciprocator encoder','Gun carriage height on each mast',function(x){return x.sp?'Sweeping':'Parked';}],['3.6','Booth airflow sensor','Proves extraction is running before powder is fed','Airflow OK'],['3.7','Cyclone and filter pressure drop','Filter loading, high value triggers pulse cleaning',nv(1100,80,'Pa')],['3.8','Reclaim hopper level','Calls fresh powder from the feed center',nv(64,3,'%')]],
+ act:['8 powder guns with HV units','Vertical reciprocators (servo)','Powder feed center and pumps','Extraction fan and cyclone recovery'],ctl:['PID gun kV, current, powder flow, air','MOT reciprocator axes','RCP gun recipe chosen by frame ID','SAF HV off if ground or extraction fails','Controllers: gun controllers, Booth PLC'],saf:['HV and powder stop on extraction loss, ground loss, fire or spark detection.']},
+z4:{n:'Z4 Cure oven',sub:'3-zone gas oven. Powder melts, flows and crosslinks at 180-200 C metal temperature for 10-15 min.',
+ steps:[[0,'Frame heats, zone control holds 180-200 C'],[.4,'Powder melts and flows'],[.8,'Film crosslinks, gloss develops']],
+ sens:[['4.1','Zone thermocouples (3)','Air temperature per zone, PID adjusts each burner',nv(190,1.5,'C')],['4.2','Substrate temperature profiler','Periodic run shows true metal temperature, not just air','Profile OK'],['4.3','Independent high-limit probe','Trips the burner on over-temperature, separate from control','Below limit'],['4.4','Airflow and flame sensors','Burner management permissives','OK'],['4.5','Conveyor speed encoder','Dwell time = distance / speed',function(x){return x.mv?'Indexing':'Dwelling';}]],
+ act:['Gas burners per zone','Recirculation and exhaust fans','Conveyor drive'],ctl:['PID zone temperature','SAF burner management system','MOT conveyor speed sets dwell','Controller: Cure BMS / PLC'],saf:['High-limit trip shuts the burner and keeps fans running to cool down.']},
+z5:{n:'Z5 QC',sub:'Robot R4 touches a thickness probe to set points and a camera checks coverage. Limit 60-90 um.',
+ steps:[[0,'RFID read, check points loaded'],[.08,'R4 probes cross member'],[.34,'R4 probes T-joint'],[.5,'R4 probes bend area'],[.66,'Result compared with 60-90 um, sent to MES']],
+ sens:[['5.1','DFT probe on R4','Measures coating thickness at cross member, T-joint and bend',function(x){return x.t5+' um '+(x.f5?'FAIL':'PASS');}],['5.2','Vision camera','Checks coverage and appearance','Coverage OK'],['5.3','RFID reader','Reads frame ID so the result is stored against the right frame',function(x){return 'ID #'+x.s5;}]],
+ act:['R4 6-axis robot with probe','Camera and lighting'],ctl:['ROB probe path chosen by frame ID','Limit logic: 60-90 um pass, outside fails','Result goes to MES and sets PASS or FAIL pallet','Controllers: QC station, robot controller'],saf:['Cell fence and light curtain stop R4 when opened.']},
+z6:{n:'Z6 Unload and hook clean',sub:'Robot R5 takes the frame off the hooks and stacks it on the PASS or FAIL pallet. The empty carrier goes to hook cleaning.',
+ steps:[[0,'R5 reaches the frame'],[.2,'R5 grips, frame leaves the hooks'],[.3,'R5 carries frame to pallet'],[.66,'Frame placed, count updated'],[.76,'R5 returns home']],
+ sens:[['6.1','Exit RFID reader','Reads ID and pass/fail result',function(x){return x.f6?'FAIL':'PASS';}],['6.2','Gripper closed sensor','Confirms R5 holds the frame before lifting',function(x){return x.w>.2&&x.w<.67?'Closed':'Open';}],['6.3','Pallet sensors','Confirm pallets are in place and not full',function(x){return 'PASS '+x.pp+' / FAIL '+x.pf;}],['6.4','Hook continuity check','After cleaning, checks hook-to-carrier contact so next frame is grounded','Continuity OK']],
+ act:['R5 robot with gripper','PASS and FAIL pallets','Hook clean station (brushes)'],ctl:['ROB R5 path, pallet chosen from QC result','SEQ cleaning cycle by hook use count','Controllers: robot controller, Line PLC'],saf:['Fence and light curtain around R5 stop the robot if opened.']}};
+var ORD=['ov','z0','z1','z2','z3','z4','z5','z6'],CAMS={ov:[0,1,0,56,.75,1],z0:[-14,2,-8,20,.9,1.05],z1:[-7.8,2,-6.5,22,.6,1],z2:[3,1.5,-6.5,26,.5,1.05],z3:[10.6,2.5,8,27,.5,.95],z4:[2.4,2.5,6.5,24,.5,1],z5:[-7.8,2.5,7,19,.5,1],z6:[-13.5,2,9,20,.4,1]};
+var sel='ov',live={s1:0,s5:0,t5:70,f5:0,f6:0,pp:0,pf:0,w:0,mv:1,t:0},cells=[];
+function render(){var d=D[sel],h='<div class="cyc" id="cy"></div><h2>'+d.n+'</h2><p>'+d.sub+'</p>';
+if(d.steps)h+='<div class="now"><b>Now:</b> <span id="nw"></span></div>';
+if(d.sens){h+='<h3>Sensors: what they do</h3><table><tr><th>Tag</th><th>Sensor and job</th><th>Live</th></tr>';d.sens.forEach(function(s,i){h+='<tr><td>'+s[0]+'</td><td><b>'+s[1]+'</b><br>'+s[2]+'</td><td class="lv" id="lv'+i+'"></td></tr>';});h+='</table>';}
+h+='<h3>'+(d.sens?'Actuators: what responds':'Process')+'</h3><ul>'+d.act.map(function(a){return '<li>'+a+'</li>';}).join('')+'</ul>';
+h+='<h3>Control</h3><ul>'+d.ctl.map(function(c){var m=c.match(/^(SEQ|PID|MOT|ROB|SAF|RAT|RCP|SUP)\s(.*)/);return '<li>'+(m?'<span class="k '+m[1]+'">'+m[1]+'</span>'+m[2]:c)+'</li>';}).join('')+'</ul>';
+h+='<h3>Safety</h3><ul>'+d.saf.map(function(a){return '<li>'+a+'</li>';}).join('')+'</ul>';ins.innerHTML=h;}
+function upd(t){var d=D[sel],c=document.getElementById('cy');if(c)c.textContent=live.mv?'Conveyor indexing: carriers move one position':'All stations working now (cycle progress '+Math.round(live.w*100)+'%)';
+if(d.steps){var s=live.mv?'Carriers moving to the next position':'',i;if(!live.mv)for(i=0;i<d.steps.length;i++)if(live.w>=d.steps[i][0])s=d.steps[i][1];var n=document.getElementById('nw');if(n)n.textContent=s;}
+if(d.sens)d.sens.forEach(function(s,i){var v=s[3],e=document.getElementById('lv'+i),o;if(!e)return;if(typeof v==='function')o=v(live);else if(typeof v==='string')o=v;else o=(v[0]+v[1]*Math.sin(t*1.7+i)).toFixed(v[3])+' '+v[2];if(e.textContent!==o)e.textContent=o;});}
+var bar=document.getElementById('bar');ORD.forEach(function(id){var b=document.createElement('button');b.textContent=id==='ov'?'Overview':D[id].n.split(' ').slice(0,id==='z6'?1:2).join(' ');b.dataset.id=id;bar.appendChild(b);});
+var sp=document.createElement('span');sp.className='sp';bar.appendChild(sp);
+[['bS','Sensors',gS],['bN','Control network',gN],['bF','Safety',gF]].forEach(function(x){var b=document.createElement('button');b.id=x[0];b.textContent=x[1];b.className='on';b.onclick=function(){x[2].visible=!x[2].visible;b.classList.toggle('on',x[2].visible);};bar.appendChild(b);});
+var run=true,speed=1,bp=document.createElement('button');bp.textContent='Pause';bp.onclick=function(){run=!run;bp.textContent=run?'Pause':'Play';bp.classList.toggle('on',!run);};bar.appendChild(bp);
+var bs=document.createElement('button');bs.textContent='Speed x1';bs.onclick=function(){speed=speed===1?2:speed===2?.5:1;bs.textContent='Speed x'+speed;};bar.appendChild(bs);
+// ---- camera
+var th=.75,ph=1,rad=56,tg=new THREE.Vector3(0,1,0),G2=null;
+function pick(id){sel=id;render();if(window.AIH)AIH(id);var c=CAMS[id];G2={tg:new THREE.Vector3(c[0],c[1],c[2]),rad:c[3],th:c[4],ph:c[5]};[].forEach.call(bar.querySelectorAll('button[data-id]'),function(b){b.classList.toggle('on',b.dataset.id===id);});}
+bar.addEventListener('click',function(e){if(e.target.dataset.id)pick(e.target.dataset.id);});
+function cm(){cam.position.set(tg.x+rad*Math.sin(ph)*Math.sin(th),tg.y+rad*Math.cos(ph),tg.z+rad*Math.sin(ph)*Math.cos(th));cam.lookAt(tg);}
+var pts={},sx=0,sy=0;el.addEventListener('pointerdown',function(e){el.setPointerCapture(e.pointerId);pts[e.pointerId]=[e.clientX,e.clientY];sx=e.clientX;sy=e.clientY;});
+el.addEventListener('pointermove',function(e){var p=pts[e.pointerId];if(!p)return;var ks=Object.keys(pts);G2=null;
+if(ks.length===2){var a=pts[ks[0]],b=pts[ks[1]],d0=Math.hypot(a[0]-b[0],a[1]-b[1]);pts[e.pointerId]=[e.clientX,e.clientY];a=pts[ks[0]];b=pts[ks[1]];var d1=Math.hypot(a[0]-b[0],a[1]-b[1]);if(d0>0)rad=Math.max(8,Math.min(110,rad*d0/d1));}
+else{th-=(e.clientX-p[0])*.006;ph=Math.max(.05,Math.min(1.5,ph-(e.clientY-p[1])*.006));pts[e.pointerId]=[e.clientX,e.clientY];}});
+var ray=new THREE.Raycaster(),picks=[];
+[['z0',-15.5,2.5,-9,8,5,7],['z1',-7.8,2.5,-7,5,5,6],['z2',4.6,2,-6.5,16.4,4,4.6],['z3',10.5,2.5,6.5,8.4,5,4.8],['z4',2.4,2.5,6.5,8,5,4.6],['z5',-7.8,2.5,7,4.2,5,5.6],['z6',-13.5,2.5,9,7,5,5]].forEach(function(p){var m=new THREE.Mesh(new THREE.BoxGeometry(p[4],p[5],p[6]),new THREE.MeshBasicMaterial({visible:false}));m.position.set(p[1],p[2],p[3]);m.userData.id=p[0];scene.add(m);picks.push(m);});
+function up(e){if(Math.hypot(e.clientX-sx,e.clientY-sy)<5&&pts[e.pointerId]){var r=el.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-((e.clientY-r.top)/r.height)*2+1),cam);var h=ray.intersectObjects(picks);if(h.length)pick(h[0].object.userData.id);}delete pts[e.pointerId];}
+el.addEventListener('pointerup',up);el.addEventListener('pointercancel',function(e){delete pts[e.pointerId];});
+el.addEventListener('wheel',function(e){e.preventDefault();G2=null;rad=Math.max(8,Math.min(110,rad*(1+e.deltaY*.001)));},{passive:false});
+function rs(){var w=el.clientWidth,h=el.clientHeight;ren.setSize(w,h);cam.aspect=w/h;cam.updateProjectionMatrix();}addEventListener('resize',rs);rs();pick('ov');
+// ---- simulation
+var T=7,Tm=1.8,simT=0,last=performance.now(),lastRel=-1,cnt=[0,0],sh=[0,0],lastUp=0;
+var HOME1=[-15.6,3.4,-9.9],PK=[-16.6,1.25,-11.4],PKu=[-16.6,2.4,-11.4],HGu=[-13.4,3.9,-7.4],HG=[-13,3,-6.5],
+ Q1=[[0,HOME1[0],HOME1[1],HOME1[2]],[.1,PKu[0],PKu[1],PKu[2]],[.2,PK[0],PK[1],PK[2]],[.26,PK[0],PK[1],PK[2]],[.34,PKu[0],PKu[1],PKu[2]],[.46,-15,3.8,-8.6],[.57,HGu[0],HGu[1],HGu[2]],[.63,HG[0],HG[1],HG[2]],[.67,HG[0],HG[1],HG[2]],[.75,HGu[0],HGu[1],HGu[2]],[1,HOME1[0],HOME1[1],HOME1[2]]];
+var H4=[-6.6,3.9,-0+8.4],Pa=[-7.8,3.05,7.4],Pb=[-7.24,3.05,7.4],Pc=[-7.24,3.2,7.85],
+ Q4=[[0].concat(H4),[.1,-7.8,3.7,7.4],[.18].concat(Pa),[.3].concat(Pa),[.36].concat(Pb),[.46].concat(Pb),[.52].concat(Pc),[.62].concat(Pc),[.7,-7.6,3.8,7.6],[.82].concat(H4),[1].concat(H4)];
+function q5(f){var X=f?-10.2:-15.8,y=.9+.14*Math.min(cnt[f?1:0],5),H=[-14.2,3.6,9.6];return [[0].concat(H),[.1,-13,3.6,7],[.17,-13,3,6.5],[.24,-13,3,6.5],[.32,-13,3.6,7],[.45,-13.8,3.6,8.8],[.58,X,2.5,10.8],[.65,X,y+.3,10.8],[.69,X,y+.3,10.8],[.77,X,2.5,10.8],[1].concat(H)];}
+function tick(now){var dt=Math.min((now-last)/1000,.1);last=now;if(run)simT+=dt*speed;
+var c=Math.floor(simT/T),u=simT-c*T,mv=u<Tm,e=mv?ss(u/Tm):1,wk=mv?0:(u-Tm)/(T-Tm);
+live.w=wk;live.mv=mv;live.t=simT;live.s1=c;live.s5=c-25;live.f5=((c-25)%5+5)%5===0?1:0;live.t5=live.f5?((c-25)%2?47:112):62+(((c-25)*7%27)+27)%27;live.f6=((c-27)%5+5)%5===0?1:0;live.pp=cnt[0];live.pf=cnt[1];
+cars.forEach(function(cr,k){var s=(k+c+e)*P,p=pos(s),a=pos(s-.6),b=pos(s+.6),j=(k+c+1)%NS,q=j+wk;cr.g.position.set(p[0],0,p[1]);cr.g.rotation.y=Math.atan2(b[0]-a[0],b[1]-a[1]);
+cr.fr.g.visible=(q>=1.65&&q<28.22);if(cr.fr.g.visible)look(cr.fr.m,q);
+var y=3;if(j>=5&&j<=8){var w=wk,f=w<.15?0:w<.3?ss((w-.15)/.15):w<.7?1:w<.85?ss((.85-w)/.15):0;y=3-2.1*f;}
+if(!mv){cr.tt=(j>=5&&j<=8)?(wk>.72?.5:0):(j===9||j===10)?.5:0;}cr.tilt+=(cr.tt-cr.tilt)*.1;cr.w.position.y=y;cr.w.rotation.z=cr.tilt;var len=RY-(y+.7);cr.rd.scale.y=len;cr.rd.position.y=RY-len/2;});
+// R1 load
+var g1=path(wk,Q1);aim(R1,g1);var held=!mv&&wk>=.23&&wk<.65;inF.g.visible=mv||wk<.65;if(held){inF.g.position.set(g1[0],g1[1],g1[2]);inF.g.rotation.y=wk<.3?0:wk<.55?ss((wk-.3)/.25)*Math.PI/2:Math.PI/2;}else{inF.g.position.set(PK[0],PK[1],PK[2]);inF.g.rotation.y=0;}
+// R5 unload
+var fl=live.f6,g5=path(wk,q5(fl));aim(R5,g5);var h5=!mv&&wk>=.2&&wk<.67;outF.g.visible=h5;if(h5){outF.g.position.set(g5[0],g5[1],g5[2]);outF.g.rotation.y=-Math.PI/2*(1-ss((wk-.32)/.25));}
+if(!mv&&wk>=.67&&lastRel!==c){lastRel=c;cnt[fl]++;}
+[0,1].forEach(function(p){for(var i=0;i<6;i++)pal[p][i].g.visible=cnt[p]>i;});lP('PASS '+cnt[0],'#2b7a57');lF('FAIL '+cnt[1],'#b8372b');
+// R4 QC
+aim(R4,path(wk,Q4));var touch=!mv&&((wk>.18&&wk<.3)||(wk>.36&&wk<.46)||(wk>.52&&wk<.62));lQ(mv?'DFT waiting':wk<.66?(touch?'DFT measuring...':'DFT moving'):'DFT '+live.t5+' um '+(live.f5?'FAIL':'PASS'),wk>=.66&&!mv?(live.f5?'#b8372b':'#2b7a57'):'#14323f');
+// doors, guns, brushes
+var op=(mv||wk>.92)?1:0;door1.userData.o=(door1.userData.o||0)+(op-(door1.userData.o||0))*.15;door1.position.z=-6.5-4.6*door1.userData.o;door2.position.z=door1.position.z;
+var spray=!mv&&wk>.1&&wk<.92;live.sp=spray;rec.forEach(function(r){r.y+=((spray?2.7+.8*Math.sin(simT*1.6+r.p):2.2)-r.y)*.1;r.cg.position.y=r.y;r.cones.forEach(function(c,i){c.position.set(r.x,r.y+r.dys[i],r.z+r.dir*1.5);var o=spray?.2+.08*Math.sin(simT*6+r.p+i):0;c.material.opacity+=(o-c.material.opacity)*.25;c.visible=c.material.opacity>.01;});});
+brushes.forEach(function(b,i){b.rotation.y+=mv?0:.2;});
+// sensor highlight
+for(var id in SN)SN[id].forEach(function(m){var on=id===sel;m.scale.setScalar(on?1.4+.3*Math.sin(simT*5):1);m.material.emissive.setHex(on?0xff8800:0);});
+if(G2){tg.lerp(G2.tg,.06);rad+=(G2.rad-rad)*.06;th+=(G2.th-th)*.06;ph+=(G2.ph-ph)*.06;}
+if(now-lastUp>150){lastUp=now;upd(simT);}
+cm();ren.render(scene,cam);requestAnimationFrame(tick);}
+(function(){
+// channel: [name, unit, normal value, noise, limit, direction]
+var CH={z0:[['R1 joint torque','%',42,1.5,60,1],['Grip pressure','bar',5.2,.08,4.2,-1]],z1:[['Turbine current','A',38,.8,48,1],['Filter pressure drop','Pa',920,25,1300,1],['Vibration','mm/s',2.1,.2,4.5,1]],z2:[['Phosphate temperature','C',50,.4,58,1],['Bath pH','pH',5.1,.03,5.5,1],['Hoist current','A',12,.4,17,1]],z3:[['Gun voltage','kV',78,.8,90,1],['Powder flow','g/min',185,3,215,1],['Booth filter pressure drop','Pa',1100,30,1500,1]],z4:[['Zone temperature','C',190,.9,205,1],['Gas flow','m3/h',22,.5,27,1],['Fan vibration','mm/s',1.8,.15,4,1]],z5:[['DFT mean','um',72,1.6,88,1],['Probe force','N',3,.1,3.6,1]],z6:[['R5 joint torque','%',40,1.5,58,1],['Brush current','A',3.2,.1,4.6,1]]};
+var CA={z0:'gripper or gearbox wear',z1:'turbine wheel wear or a loaded filter',z2:'heater scaling or a drifting probe',z3:'gun nozzle wear or powder clogging',z4:'burner fouling or fan imbalance',z5:'probe tip wear',z6:'brush wear or a stiff hook'};
+var KZ={z0:'Standardise the hook positions so R1 needs only one grip point.',z1:'Trim the blast time per chassis type to cut shot use.',z2:'Hold tank chemistry on a fixed dosing schedule to cut rinse water.',z3:'Fix gun distances per chassis model to save powder.',z4:'Group similar chassis so the oven runs at one setpoint longer.',z5:'Log every DFT reading by frame ID to find weak spots early.',z6:'Colour-code PASS and FAIL pallets to stop mixed stacking.'};
+var AU={z0:[0,'Robot R1 with 3D vision hangs the frames. Cuts hanging time about 35% and removes heavy lifting.'],z1:[1,'Closed-loop turbine current and automatic abrasive dosing. Steady cleanliness and less over-blasting.'],z2:[1,'Recipe-driven hoist with automatic pH and temperature dosing. Same chemistry on every chassis.'],z3:[0,'Eight automatic guns on reciprocators with kV feedback. Even film and 15-20% less powder.'],z4:[1,'Three-zone PID control with a substrate profiler. Proves cure on every batch.'],z5:[0,'Robot R4 with a DFT probe and camera sends PASS or FAIL to MES. Removes manual gauge checks.'],z6:[0,'Robot R5 unloads onto PASS and FAIL pallets using RFID. Removes handling damage.']};
+var LV=['Manual','Semi-automated','Automated'],ids=Object.keys(CH),ST={},QP={p:.05,f:''},W=[0,0,0,0],B=0,cur=null,$=function(i){return document.getElementById(i)};
+function gn(){var s=0;for(var i=0;i<12;i++)s+=Math.random();return s-6}
+// train a tiny logistic regression on synthetic process data (features are squared deviations)
+for(var e=0;e<40;e++)for(var n=0;n<300;n++){var x=[gn(),gn(),gn(),gn()],f=x.map(function(v){return v*v}),sc=.9*f[0]+.7*f[1]+.5*f[2]+.4*f[3]+gn()*.9,y=sc>4.5?1:0,z=B,i;for(i=0;i<4;i++)z+=W[i]*f[i];var g=1/(1+Math.exp(-z))-y;for(i=0;i<4;i++)W[i]-=.02*g*f[i];B-=.02*g}
+function lg(z,m){var l=ST[z].log;l.unshift(new Date().toLocaleTimeString([],{hour12:false})+'  '+m);if(l.length>8)l.pop()}
+function slope(a){var n=a.length,sx=0,sy=0,sxy=0,sxx=0;a.forEach(function(y,x){sx+=x;sy+=y;sxy+=x*y;sxx+=x*x});return(n*sxy-sx*sy)/(n*sxx-sx*sx)}
+function avg(a){return a.reduce(function(p,q){return p+q},0)/a.length}
+function step(z){var s=ST[z];s.t++;if(s.ft>=0)s.ft++;
+CH[z].forEach(function(c,i){var k=s.ch[i],dr=i||s.ft<0?0:(c[4]-c[2])*Math.min(1.15,s.ft/150)*(s.ai&&s.fl?.6:1),x=c[2]+dr+gn()*c[3]*.5;k.h.push(x);k.an.push(0);if(k.h.length>120){k.h.shift();k.an.shift()}
+if(k.h.length===40){k.mu=avg(k.h);k.sd=Math.sqrt(avg(k.h.map(function(v){return(v-k.mu)*(v-k.mu)})))||c[3]*.5}
+if(k.sd){k.z=(x-k.mu)/k.sd;k.run=Math.abs(k.z)>4?k.run+1:0;if(k.run>=2){k.an[k.an.length-1]=1;if(!k.flag){k.flag=1;s.an++;lg(z,'AI: anomaly on '+c[0]+' (z = '+k.z.toFixed(1)+')');if(s.ai&&!s.fl)lg(z,'AI: work order raised, load derated 10%')}}else if(Math.abs(k.z)<2.5)k.flag=0}});
+s.fl=s.ch.some(function(k){return k.flag});var mn=1,sm=0;
+CH[z].forEach(function(c,i){var a=s.ch[i].h,hs=Math.max(0,1-Math.abs(avg(a.slice(-5))-c[2])/Math.abs(c[4]-c[2]));mn=Math.min(mn,hs);sm+=hs});s.H=Math.round(100*(.5*mn+.5*sm/CH[z].length));
+var a0=s.ch[0].h,c0=CH[z][0],b=slope(a0.slice(-30)),xn=a0[a0.length-1];s.rul=null;if(b*c0[5]>Math.abs(c0[4]-c0[2])/300)s.rul=(c0[4]-xn)*c0[5]>0?Math.max(0,(c0[4]-xn)/b*.05):0}
+function L(z,i){var a=ST[z].ch[i].h;return a[a.length-1]}
+function pdef(){var d=[(L('z4',0)-190)/5,(L('z3',0)-78)/4,(L('z3',1)-185)/10,(L('z2',0)-50)/2],z=B,t=0,ti=0;d.forEach(function(v,i){var c=W[i]*v*v;z+=c;if(c>t){t=c;ti=i}});return{p:1/(1+Math.exp(-z)),f:['cure oven temperature','gun voltage','powder flow','phosphate bath temperature'][ti]}}
+function oee(z){var s=ST[z],sv=Math.min(1,(100-s.H)/60);return(s.run?.96-.25*sv:0)*Math.min(.98,.82+.06*s.lv-.1*sv)*(1-QP.p)}
+function stt(z){var s=ST[z];return!s.run?'Stopped':s.fl?'Anomaly':s.H<75?'Watch':'Healthy'}
+function cl(z){var s=ST[z];return!s.run||s.fl||s.H<50?'bad':s.H<75?'warn':'ok'}
+ids.forEach(function(z){ST[z]={t:0,ft:-1,run:1,ai:1,fl:0,an:0,H:100,rul:null,sel:0,lv:AU[z][0],log:[],ch:CH[z].map(function(){return{h:[],an:[],mu:0,sd:0,z:0,run:0,flag:0}})}});
+for(var q=0;q<125;q++)ids.forEach(function(z){step(z)});QP=pdef();
+// ---- drawer UI
+var st=document.createElement('style');st.textContent='#dash{position:fixed;top:env(safe-area-inset-top,0px);right:0;bottom:0;width:min(780px,100vw);overflow:auto;background:var(--bg);border-left:1px solid var(--line);box-shadow:-8px 0 24px rgba(0,0,0,.25);padding:14px;transform:translateX(105%);visibility:hidden;transition:transform .25s,visibility 0s .25s;z-index:20}#dash.o{transform:none;visibility:visible;transition:transform .25s}#dash h2{margin:0 0 8px;font-size:19px}.kp{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:8px 0}.kp div,.cd{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 10px}.kp b{display:block;font-size:20px}.kp span{font-size:12px;color:var(--mute)}.cd h3{margin:0 0 6px}.dg{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;margin-top:10px}canvas.tc{width:100%;height:170px;display:block;color:var(--ink)}.bt,.ch2{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.ok{color:var(--grn)}.warn{color:var(--amb)}.bad{color:var(--red)}.kp .ok,.kp .warn,.kp .bad{font-weight:700}.gr{cursor:pointer}.gr:hover{background:var(--tint)}.mu{color:var(--mute);font-size:12.5px}.eq{display:flex;align-items:center;gap:8px;margin:4px 0}.eq>span:first-child{flex:1}.bz{display:inline-block;width:90px;height:8px;background:var(--line);border-radius:4px;overflow:hidden}.bz span{display:block;height:100%;background:var(--grn)}.stp span{display:inline-block;padding:3px 10px;border:1px solid var(--line);border-radius:12px;margin:0 6px 6px 0;font-size:12px}.stp span.on{background:var(--navy);color:#fff;border-color:var(--navy)}.lg2{margin:0;padding-left:16px;font-size:12.5px}';document.head.appendChild(st);
+var dash=document.createElement('aside');dash.id='dash';dash.setAttribute('aria-label','AI monitoring dashboard');dash.innerHTML='<div id="dc"></div>';document.body.appendChild(dash);
+function chips(){var c=$('chs');if(!c)return;c.innerHTML=CH[cur].map(function(h,i){return'<button data-c="'+i+'"'+(i===ST[cur].sel?' class="on"':'')+'>'+h[0]+'</button>'}).join('')}
+function kpHtml(z){var s=ST[z],r=s.rul==null?'Stable':s.rul<=.05?'At limit':s.rul.toFixed(1)+' h',t=function(a,b,c){return'<div><b'+(c?' class="'+c+'"':'')+'>'+a+'</b><span>'+b+'</span></div>'};return t(s.H+'%','Health score',cl(z))+t(stt(z),'AI status',cl(z))+t(Math.round(oee(z)*100)+'%','OEE')+t(r,'Time to limit')+t(Math.round(QP.p*100)+'%','Defect risk (plant)',QP.p>.25?'bad':'ok')+t(LV[s.lv],'Automation level')}
+function mlHtml(z){var s=ST[z],ch=CH[z],pc=Math.round(QP.p*100),c0=ch[0],
+rows=ch.map(function(c,i){var k=s.ch[i];return'<tr><td>'+c[0]+'</td><td>'+L(z,i).toFixed(2)+' '+c[1]+'</td><td>'+(k.mu-3*k.sd).toFixed(1)+' to '+(k.mu+3*k.sd).toFixed(1)+'</td><td class="'+(k.flag?'bad':'ok')+'">'+k.z.toFixed(1)+'</td></tr>'}).join(''),
+rec=!s.run?'Machine is stopped. Start it to resume monitoring.':s.fl?'Anomaly on '+c0[0]+'. Likely cause: '+CA[z]+'. '+(s.rul!=null?'Predicted to reach its limit in '+s.rul.toFixed(1)+' h. ':'')+'Plan maintenance at the next changeover'+(s.ai?'. Load is derated while you wait.':'. Turn on AI auto-response to derate automatically.'):QP.p>.25?'Quality risk is '+pc+'%, driven by '+QP.f+'. Check it before the next batch.':'Normal. Every reading is inside its learned band. Kaizen idea: '+KZ[z],
+rd=Math.round(100*(.4*(ch.length>2?1:.8)+.3*(1-Math.min(1,s.an/5))+.3*s.H/100)),
+eq=D[z].act.map(function(a,i){var v=Math.max(0,Math.round(i?100-(100-s.H)*.4-i*2:s.H));return'<div class="eq"><span>'+a+'</span><span class="bz"><span style="width:'+v+'%"></span></span><b>'+v+'%</b></div>'}).join('');
+return'<div class="dg"><div class="cd"><h3>AI recommendation</h3><p>'+rec+'</p></div><div class="cd"><h3>Automation roadmap</h3><div class="stp">'+LV.map(function(l,i){return'<span'+(i<=s.lv?' class="on"':'')+'>'+l+'</span>'}).join('')+'</div><p>'+(s.lv<2?AU[z][1]:'Fully automated. Use the ML insights to tune setpoints (kaizen).')+'</p><p class="mu">ML readiness for the next level: '+rd+'%</p></div></div>'+
+'<div class="dg"><div class="cd"><h3>Anomaly detector (z-score)</h3><table><tr><th>Reading</th><th>Now</th><th>Normal range</th><th>z</th></tr>'+rows+'</table></div><div class="cd"><h3>Quality predictor (logistic regression)</h3><p>First-pass defect risk <b>'+pc+'%</b>. Main driver: '+QP.f+'.</p><div class="bz" style="width:100%"><span style="width:'+pc+'%;background:'+(pc>25?'var(--red)':'var(--grn)')+'"></span></div><p class="mu">Trained in your browser on 12,000 synthetic samples of cure temperature, gun voltage, powder flow and bath temperature.</p></div></div>'+
+'<div class="dg"><div class="cd"><h3>Equipment health (inferred from zone sensors)</h3>'+eq+'</div><div class="cd"><h3>Events and AI actions</h3><ul class="lg2">'+(s.log.map(function(l){return'<li>'+l+'</li>'}).join('')||'<li>No events yet. Try Simulate fault.</li>')+'</ul></div></div><p class="mu">Telemetry is simulated and the models run live. For production, feed this from PLC or OPC UA data.</p>'}
+function plantHtml(){var n=ids.length,aH=0,aL=0,oS=0,rows=ids.map(function(z){var s=ST[z],o=oee(z);aH+=s.H;aL+=s.lv;oS+=o;return'<tr class="gr" data-go="'+z+'"><td>'+D[z].n+'</td><td>'+LV[s.lv]+'</td><td class="'+cl(z)+'">'+s.H+'%</td><td>'+Math.round(o*100)+'%</td><td class="'+cl(z)+'">'+stt(z)+'</td></tr>'}).join('');
+return'<div class="kp"><div><b>'+Math.round(oS/n*100)+'%</b><span>Plant OEE</span></div><div><b>'+Math.round(aL/(2*n)*100)+'%</b><span>Automation index</span></div><div><b>'+Math.round(QP.p*100)+'%</b><span>Defect risk</span></div><div><b>'+Math.round(aH/n)+'%</b><span>Average health</span></div></div><div class="cd"><h3>Stations (select a row to open it)</h3><table><tr><th>Station</th><th>Level</th><th>Health</th><th>OEE</th><th>AI status</th></tr>'+rows+'</table></div><p class="mu">Automation index: 0% is fully manual, 100% is fully automated. Sensor dots in the 3D model turn orange or red when the AI sees a problem.</p>'}
+function draw(){var cv=$('cv');if(!cv)return;var s=ST[cur],c=CH[cur][s.sel],k=s.ch[s.sel],a=k.h,d=devicePixelRatio||1,w=cv.clientWidth,h=170;if(!w)return;if(cv.width!==Math.round(w*d)){cv.width=Math.round(w*d);cv.height=h*d}var g=cv.getContext('2d');g.setTransform(d,0,0,d,0,0);g.clearRect(0,0,w,h);
+var lo=Math.min.apply(0,a.concat([k.mu-4*k.sd,c[2],c[4]])),hi=Math.max.apply(0,a.concat([k.mu+4*k.sd,c[2],c[4]])),pd=(hi-lo)*.08;lo-=pd;hi+=pd;var Y=function(v){return h-6-(v-lo)/(hi-lo)*(h-12)},X=function(i){return i/119*(w-4)+2};
+g.fillStyle='rgba(43,122,87,.16)';g.fillRect(0,Y(k.mu+3*k.sd),w,Y(k.mu-3*k.sd)-Y(k.mu+3*k.sd));g.setLineDash([5,4]);g.strokeStyle='#d0463a';g.beginPath();g.moveTo(0,Y(c[4]));g.lineTo(w,Y(c[4]));g.stroke();g.setLineDash([]);
+g.strokeStyle='#2a7fb8';g.lineWidth=2;g.beginPath();a.forEach(function(v,i){i?g.lineTo(X(i),Y(v)):g.moveTo(X(i),Y(v))});g.stroke();g.fillStyle='#e0302a';a.forEach(function(v,i){if(k.an[i]){g.beginPath();g.arc(X(i),Y(v),3.5,0,7);g.fill()}});
+g.fillStyle=getComputedStyle(cv).color;g.font='11px sans-serif';g.fillText('limit '+c[4]+' '+c[1],6,Math.max(12,Y(c[4])-4))}
+function paint(){if(!cur)return;if(cur==='plant'){$('kp').innerHTML=plantHtml();return}$('kp').innerHTML=kpHtml(cur);$('ml').innerHTML=mlHtml(cur);draw()}
+function open(z){cur=z;dash.classList.add('o');var x='<button id="dx" style="float:right">Close</button>';$('dc').innerHTML=x+(z==='plant'?'<h2>Plant AI overview</h2><div id="kp"></div>':'<h2>'+D[z].n+'</h2><div class="bt"><button data-a="run">Run or stop</button><button data-a="flt">Simulate fault</button><button data-a="fix">Maintenance done</button><button data-a="up">Raise automation level</button><button data-a="ai">AI auto-response</button></div><div class="kp" id="kp"></div><div class="cd"><h3>Live telemetry and anomaly detection</h3><div class="ch2" id="chs"></div><canvas class="tc" id="cv"></canvas><p class="mu">Blue: live reading. Green band: normal range learned from the first 40 samples. Red dots: anomalies. Dashed red: limit.</p></div><div id="ml"></div>');chips();paint()}
+dash.onclick=function(e){var b=e.target.closest('button,tr[data-go]');if(!b)return;if(b.id==='dx')return pick('ov');if(b.dataset.go)return pick(b.dataset.go);var s=ST[cur],a=b.dataset.a;
+if(b.dataset.c!=null){s.sel=+b.dataset.c;chips()}else if(a==='run'){s.run=s.run?0:1;lg(cur,s.run?'Started':'Stopped by operator')}else if(a==='flt'){if(s.ft<0){s.ft=0;lg(cur,'Fault injected on '+CH[cur][0][0])}}
+else if(a==='fix'){s.ft=-1;s.fl=0;s.ch.forEach(function(k){k.flag=0;k.run=0});lg(cur,'Maintenance done, readings back to normal')}else if(a==='up'){if(s.lv<2){s.lv++;lg(cur,'Automation raised to '+LV[s.lv])}}else if(a==='ai'){s.ai=s.ai?0:1;lg(cur,'AI auto-response '+(s.ai?'on':'off'))}paint()};
+window.AIH=function(id){if(id==='ov'){cur=null;dash.classList.remove('o')}else open(id)};
+var pb=document.createElement('button');pb.textContent='AI plant dashboard';pb.onclick=function(){open('plant')};bar.appendChild(pb);
+setInterval(function(){ids.forEach(function(z){if(ST[z].run)step(z)});QP=pdef();ids.forEach(function(z){var c=cl(z)==='bad'?0xff2a1a:cl(z)==='warn'?0xff8c1a:0xe0a100;(SN[z]||[]).forEach(function(m){m.material.color.setHex(c)})});paint()},500);
+})();
+
+requestAnimationFrame(tick);
+})();
+</script></body></html>
